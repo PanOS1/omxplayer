@@ -47,17 +47,18 @@ Keyboard::Keyboard()
 
 Keyboard::~Keyboard() 
 {
-  Close();
-}
-
-void Keyboard::Close()
-{
   restore_term();
   dbus_disconnect();
   if (ThreadHandle()) 
   {
     StopThread();
   }
+}
+
+void Keyboard::Close() 
+{
+  if (ThreadHandle())
+    StopThread();
 }
 
 void Keyboard::restore_term() 
@@ -81,9 +82,13 @@ void Keyboard::Sleep(unsigned int dwMilliSeconds)
   while ( nanosleep(&req, &req) == -1 && errno == EINTR && (req.tv_nsec > 0 || req.tv_sec > 0));
 }
 
+void Keyboard::setConsoleControl(OMXControl * ctrl) {
+	m_omxcontrol = ctrl;
+}
+
 void Keyboard::Process() 
 {
-  while(!m_bStop && conn && dbus_connection_read_write_dispatch(conn, 0)) 
+  while(!m_bStop)
   {
     int ch[8];
     int chnum = 0;
@@ -92,8 +97,13 @@ void Keyboard::Process()
 
     if (chnum > 1) ch[0] = ch[chnum - 1] | (ch[chnum - 2] << 8);
 
-    if (m_keymap[ch[0]] != 0)
-          send_action(m_keymap[ch[0]]);
+    if (m_keymap[ch[0]] != 0) {
+    	if ( conn && dbus_connection_read_write_dispatch(conn, 0) ) {
+    		send_action(m_keymap[ch[0]]);
+    	} else if ( m_omxcontrol ) {
+    		m_omxcontrol->pushLocalAction(m_keymap[ch[0]]);
+    	}
+    }
     else
       Sleep(20);
   }

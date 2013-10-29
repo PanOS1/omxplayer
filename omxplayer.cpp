@@ -60,6 +60,7 @@ extern "C" {
 #include "KeyConfig.h"
 #include "utils/Strprintf.h"
 #include "Keyboard.h"
+#include "OMXRemoteBridge.h"
 
 #include <string>
 #include <utility>
@@ -121,6 +122,7 @@ bool              m_has_subtitle        = false;
 float             m_display_aspect      = 0.0f;
 bool              m_boost_on_downmix    = true;
 bool              m_gen_log             = false;
+COMXRemoteBridge  *m_remote_bridge 		= NULL;
 
 enum{ERROR=-1,SUCCESS,ONEBYTE};
 
@@ -187,6 +189,8 @@ void print_usage()
   printf("              --live                    Set for live tv or vod type stream\n");
   printf("              --layout                  Set output speaker layout (e.g. 5.1)\n");
   printf("              --key-config <file>       Uses key bindings specified in <file> instead of the default\n");
+  printf("              --bridge <port>           Connect to remote bridge on <port> on localhost\n");
+  printf("              --console                 Use stdin console for input\n");
 }
 
 void print_keybindings()
@@ -548,6 +552,8 @@ int main(int argc, char *argv[])
   int m_orientation      = -1; // unset
   bool m_live            = false; // set to true for live tv or vod for low buffering
   enum PCMLayout m_layout = PCM_LAYOUT_2_0;
+  int   m_remote_bridge_port = 0;
+  bool  m_use_console = false;
   TV_DISPLAY_STATE_T   tv_state;
 
   const int font_opt        = 0x100;
@@ -573,6 +579,8 @@ int main(int argc, char *argv[])
   const int orientation_opt = 0x204;
   const int live_opt = 0x205;
   const int layout_opt = 0x206;
+  const int remote_bridge_opt = 0x208;
+  const int use_console_opt = 0x209;
 
   struct option longopts[] = {
     { "info",         no_argument,        NULL,          'i' },
@@ -616,6 +624,8 @@ int main(int argc, char *argv[])
     { "orientation",  required_argument,  NULL,          orientation_opt },
     { "live",         no_argument,        NULL,          live_opt },
     { "layout",       required_argument,  NULL,          layout_opt },
+    { "bridge",   	  required_argument,  NULL,          remote_bridge_opt },
+    { "console",      no_argument,        NULL,          use_console_opt },
     { 0, 0, 0, 0 }
   };
 
@@ -792,6 +802,12 @@ int main(int argc, char *argv[])
       case key_config_opt:
         keymap = KeyConfig::parseConfigFile(optarg);
         break;
+      case use_console_opt:
+    	m_use_console = true;
+    	break;
+      case remote_bridge_opt:
+    	m_remote_bridge_port = atoi(optarg);
+	    break;
       case 0:
         break;
       case 'h':
@@ -896,6 +912,8 @@ int main(int argc, char *argv[])
   m_av_clock = new OMXClock();
   m_omxcontrol.init(m_av_clock, &m_player_audio);
   m_keyboard.setKeymap(keymap);
+
+  if (m_use_console) m_keyboard.setConsoleControl(&m_omxcontrol);
 
   m_thread_player = true;
 
@@ -1036,6 +1054,16 @@ int main(int argc, char *argv[])
     m_player_audio.SetVolume(pow(10, m_Volume / 2000.0));
     if (m_Amplification)
       m_player_audio.SetDynamicRangeCompression(m_Amplification);
+  }
+
+  if (m_remote_bridge_port > 0 && m_remote_bridge_port < 65536) {
+    m_remote_bridge = new COMXRemoteBridge(
+    		m_av_clock,
+    		&m_omx_reader,
+    		&m_player_audio,
+    		&m_omxcontrol,
+    		m_remote_bridge_port);
+    m_remote_bridge->Create();
   }
 
   if (m_threshold < 0.0f)
@@ -1610,6 +1638,11 @@ do_exit:
 
   m_av_clock->OMXStop();
   m_av_clock->OMXStateIdle();
+
+  if(m_remote_bridge)
+  {
+	m_remote_bridge->StopThread();
+  }
 
   m_player_subtitles.Close();
   m_player_video.Close();

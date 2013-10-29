@@ -1,3 +1,6 @@
+#ifndef __KEYCONFIG_H__
+#define __KEYCONFIG_H__
+
 #include <map>
 #include <string>
 
@@ -42,3 +45,5 @@ class KeyConfig
     static std::map<int, int> buildDefaultKeymap();
     static std::map<int, int> parseConfigFile(std::string filepath);
 };
+
+#endif

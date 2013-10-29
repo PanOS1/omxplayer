@@ -1,3 +1,6 @@
+#ifndef __OMX_CONTROL__H__
+#define __OMX_CONTROL__H__
+
 #define OMXPLAYER_DBUS_NAME "org.mpris.MediaPlayer2.omxplayer"
 #define OMXPLAYER_DBUS_PATH_SERVER "/org/mpris/MediaPlayer2"  
 #define OMXPLAYER_DBUS_INTERFACE_ROOT "org.mpris.MediaPlayer2"
@@ -13,10 +16,12 @@ protected:
   DBusConnection *bus;
   OMXClock       *clock;
   OMXPlayerAudio *audio;
+  std::queue<int> console_queue;
 public:
   OMXControl();
   ~OMXControl();
   void init(OMXClock *m_av_clock, OMXPlayerAudio *m_player_audio);
+  void pushLocalAction(int action);
   int getEvent();
   void dispatch();
 private:
@@ -30,3 +35,4 @@ private:
   DBusHandlerResult dbus_respond_array(DBusMessage *m, const char *array[], int size);
 };
 
+#endif

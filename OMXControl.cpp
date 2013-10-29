@@ -100,10 +100,22 @@ void OMXControl::dbus_disconnect()
     }
 }
 
+void OMXControl::pushLocalAction(int action) {
+	console_queue.push(action);
+}
+
 int OMXControl::getEvent() 
 {
-  if (!bus)
-    return KeyConfig::ACTION_BLANK;
+  if (!console_queue.empty()) {
+	// process actions added from console
+	int action = console_queue.front();
+	console_queue.pop();
+	return action;
+  }
+
+  if (!bus) {
+	  return KeyConfig::ACTION_BLANK;
+  }
   
   dispatch();
   DBusMessage *m = dbus_connection_pop_message(bus);
