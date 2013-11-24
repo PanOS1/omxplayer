@@ -1062,7 +1062,9 @@ int main(int argc, char *argv[])
     		&m_omx_reader,
     		&m_player_audio,
     		&m_omxcontrol,
-    		m_remote_bridge_port);
+    		&m_player_subtitles,
+    		m_remote_bridge_port,
+    		m_osd);
     m_remote_bridge->Create();
   }
 
@@ -1340,19 +1342,26 @@ int main(int argc, char *argv[])
     }
     }
 
-    if(m_seek_flush || m_incr != 0)
+    int rbSeek = 0;
+    if (m_incr == 0 && m_remote_bridge) {
+    	rbSeek = m_remote_bridge->GetSeekPosition();
+    }
+
+    if(m_seek_flush || m_incr != 0 || rbSeek >= 0)
     {
       double seek_pos     = 0;
-      double pts          = 0;
 
       if(m_has_subtitle)
         m_player_subtitles.Pause();
 
-      pts = m_av_clock->OMXMediaTime();
-
-      seek_pos = (pts / DVD_TIME_BASE) + m_incr;
-
-      seek_pos *= 1000.0;
+      if(rbSeek >= 0) {
+    	  seek_pos = rbSeek * 1000.0;
+      } else {
+    	  double pts = 0;
+		  pts = m_av_clock->OMXMediaTime();
+		  seek_pos = (pts / DVD_TIME_BASE) + m_incr;
+		  seek_pos *= 1000.0;
+      }
 
       m_incr = 0;
 

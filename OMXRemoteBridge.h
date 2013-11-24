@@ -16,11 +16,14 @@
 #include <netdb.h>
 
 #include "utils/log.h"
+#include "utils/Strprintf.h"
+
 #include "OMXThread.h"
 #include "OMXControl.h"
 #include "OMXReader.h"
 #include "OMXClock.h"
 #include "OMXAudio.h"
+#include "OMXPlayerSubtitles.h"
 #include "KeyConfig.h"
 
 /* Message identifiers */
@@ -34,7 +37,7 @@
 #define MSG_SUB_SHOW      0x16
 #define MSG_VOLUME        0x21
 #define MSG_SEEK_TO       0x22
-#define MSG_POSITION      0x31
+#define MSG_PLAYER_STATE  0x31
 
 /* Remote Bridge thread */
 
@@ -45,22 +48,31 @@ public:
 			OMXReader* reader,
 			OMXPlayerAudio* audio,
 			OMXControl* ctrl,
-			int port);
+			OMXPlayerSubtitles* subtitles,
+			int port,
+			bool osd);
 	virtual ~COMXRemoteBridge();
+
+	int GetSeekPosition();
 private:
 	int m_listen_port;
 	int m_sockfd;
 	int m_exit_requested;
+	int seekPosition = 0;
 
 	OMXClock*       m_clock;
 	OMXReader*      m_reader;
 	OMXPlayerAudio* m_audio;
 	OMXControl*     m_control;
+	OMXPlayerSubtitles* m_subtitles;
+
+	bool m_osd;
 
 	bool Connect();
 	void Process();
 	void Handle(char* data, int len);
 	void AppendLong(char* buffer, long value);
+	long ReadLong(char* buffer, int offset);
 };
 
 #endif /* OMXREMOTEBRIDGE_H_ */

@@ -27,6 +27,7 @@
   void setConsoleControl(OMXControl * ctrl);
   void Sleep(unsigned int dwMilliSeconds);
  private:
+  int poll_char();
   void restore_term();
   void send_action(int action);
   int dbus_connect();

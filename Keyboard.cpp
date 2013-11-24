@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <termios.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -86,22 +87,40 @@ void Keyboard::setConsoleControl(OMXControl * ctrl) {
 	m_omxcontrol = ctrl;
 }
 
+int Keyboard::poll_char() {
+	struct timeval timeout;
+	timeout.tv_sec = 1;
+	timeout.tv_usec = 0;
+
+	fd_set fd_stdin;
+	FD_ZERO(&fd_stdin);
+	FD_SET(STDIN_FILENO, &fd_stdin);
+
+	if (!select(1, &fd_stdin, NULL, NULL, &timeout)) {
+		return 0;
+	} else {
+		int ch[8];
+		int chnum = 0;
+
+		while ((ch[chnum] = getchar()) != EOF) chnum++;
+
+		if (chnum > 1) ch[0] = ch[chnum - 1] | (ch[chnum - 2] << 8);
+
+		return ch[0];
+	}
+}
+
 void Keyboard::Process() 
 {
   while(!m_bStop)
   {
-    int ch[8];
-    int chnum = 0;
+    int input = poll_char();
 
-    while ((ch[chnum] = getchar()) != EOF) chnum++;
-
-    if (chnum > 1) ch[0] = ch[chnum - 1] | (ch[chnum - 2] << 8);
-
-    if (m_keymap[ch[0]] != 0) {
+    if (input != 0 && m_keymap[input] != 0) {
     	if ( conn && dbus_connection_read_write_dispatch(conn, 0) ) {
-    		send_action(m_keymap[ch[0]]);
+    		send_action(m_keymap[input]);
     	} else if ( m_omxcontrol ) {
-    		m_omxcontrol->pushLocalAction(m_keymap[ch[0]]);
+    		m_omxcontrol->pushLocalAction(m_keymap[input]);
     	}
     }
     else

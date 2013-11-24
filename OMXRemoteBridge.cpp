@@ -12,7 +12,9 @@ COMXRemoteBridge::COMXRemoteBridge(
 		OMXReader* reader,
 		OMXPlayerAudio* audio,
 		OMXControl* ctrl,
-		int port) : OMXThread() {
+		OMXPlayerSubtitles* subtitles,
+		int port,
+		bool osd) : OMXThread() {
 
 	m_listen_port = port;
 	m_sockfd      = 0;
@@ -23,6 +25,10 @@ COMXRemoteBridge::COMXRemoteBridge(
 	m_reader      = reader;
 	m_audio       = audio;
 	m_control     = ctrl;
+	m_subtitles   = subtitles;
+
+	seekPosition = -1;
+	m_osd = osd;
 }
 
 COMXRemoteBridge::~COMXRemoteBridge() {
@@ -32,14 +38,42 @@ COMXRemoteBridge::~COMXRemoteBridge() {
 void COMXRemoteBridge::AppendLong(char* buffer, long value) {
 	int idx, shift;
 	long mask, b;
+	bool negative;
 
-	for (idx = 0; idx < 8; idx++) {
-		shift = (8 - 1 - idx) * 8;
+	negative  = value < 0;
+	if (negative) {
+		value = -value;
+	}
+
+	for (idx = 0; idx < 4; idx++) {
+		shift = (4 - 1 - idx) * 8;
 		mask  = 0xFF << shift;
 		b     = (value & mask) >> shift;
 
 		buffer[idx] = (unsigned char) (b & 0xFF);
 	}
+
+	if(negative) {
+		buffer[0] |= 0x80;
+	}
+}
+
+long COMXRemoteBridge::ReadLong(char* buffer, int offset) {
+	long val;
+	int idx, shift;
+	bool negative;
+
+	negative = buffer[offset] & 0x80;
+	buffer[offset] &= 0x7F;
+
+	val = 0;
+
+	for (idx = 0; idx < 4; idx++) {
+		shift = (4 - 1 - idx) * 8;
+		val = val + ((buffer[offset + idx]) << shift);
+	}
+
+	return negative ? -val : val;
 }
 
 void COMXRemoteBridge::Handle(char* data, int len) {
@@ -49,22 +83,19 @@ void COMXRemoteBridge::Handle(char* data, int len) {
 	CLog::Log(LOGDEBUG,
 			"COMXRemoteBridge::Handle - Remote Bridge handling incoming data: '%s' (%d)", data, len);
 
-	// TODO implement this
 	switch (data[0]) {
 	case MSG_INIT:
 	{
 		long duration = m_reader->GetStreamLength();
-		long volume   = m_audio->GetVolume(); // Volume in millibels
-	    // double normalized_volume = pow(10, volume / 2000.0);
-		printf("INIT:: %ld, %ld\n", volume, duration);
+		long volume 	= static_cast<long>(2000.0 * log10(m_audio->GetVolume()));
 
 		response[rsp_len++] = MSG_INIT;
 
 		AppendLong(response + rsp_len, duration);
-		rsp_len += 8;
+		rsp_len += 4;
 
 		AppendLong(response + rsp_len, volume);
-		rsp_len += 8;
+		rsp_len += 4;
 
 		break;
 	}
@@ -91,19 +122,47 @@ void COMXRemoteBridge::Handle(char* data, int len) {
 		m_control->pushLocalAction(KeyConfig::ACTION_TOGGLE_SUBTITLE);
 		break;
 	case MSG_VOLUME:
-		// TODO
-		break;
-	case MSG_SEEK_TO:
-		// TODO
-		break;
-	case MSG_POSITION:
 	{
-		long position = (unsigned) (m_clock->OMXMediaTime() * 1e-3);
-		printf("POS: %ld\n", position);
+		long volume = ReadLong(data, 1);
 
-		response[rsp_len++] = MSG_POSITION;
+		double dv = pow(10, volume / 2000.0);
+		m_audio->SetVolume(dv);
+
+		if(m_osd) {
+			m_subtitles->DisplayText(strprintf("Volume: %.2f dB", volume / 100.0f), 1000);
+		}
+
+		break;
+	}
+	case MSG_SEEK_TO:
+	{
+		long position = ReadLong(data, 1);
+
+		Lock();
+		seekPosition = position;
+		UnLock();
+
+		break;
+	}
+	case MSG_PLAYER_STATE:
+	{
+		long position 	= (unsigned) (m_clock->OMXMediaTime() * 1e-3);
+		long volume 	= static_cast<long>(2000.0 * log10(m_audio->GetVolume()));
+
+		response[rsp_len++] = MSG_PLAYER_STATE;
+
 		AppendLong(response + rsp_len, position);
-		rsp_len += 8;
+		rsp_len += 4;
+
+		AppendLong(response + rsp_len, volume);
+		rsp_len += 4;
+
+		if( m_clock->OMXIsPaused() ) {
+			response[rsp_len] = 'P';
+		} else {
+			response[rsp_len] = 'R';
+		}
+		rsp_len++;
 
 		break;
 	}
@@ -116,14 +175,16 @@ void COMXRemoteBridge::Handle(char* data, int len) {
 		write(m_sockfd, buflen, 1);
 		write(m_sockfd, response, rsp_len);
 		response[rsp_len] = 0;
-
-		printf("WRITE: %s\n", response);
-		printf("  HEX: ");
-		for(idx=0; idx<rsp_len; idx++) {
-			printf("%2X ", response[idx]);
-		}
-		printf("\n");
 	}
+}
+
+int COMXRemoteBridge::GetSeekPosition() {
+	int result = 0;
+	Lock();
+	result = seekPosition;
+	seekPosition = -1;
+	UnLock();
+	return result;
 }
 
 void COMXRemoteBridge::Process() {
@@ -150,11 +211,11 @@ void COMXRemoteBridge::Process() {
 		CLog::Log(LOGDEBUG,
 			"COMXRemoteBridge::Process - Remote Bridge exited receive loop");
 
-		if (connected) {
-			// Send exit message
-			buffer[0] = MSG_EXIT;
-			write(m_sockfd, buffer, 1);
-		}
+		// Send exit message
+		buffer[0] = MSG_EXIT;
+		write(m_sockfd, buffer, 1);
+
+		close(m_sockfd);
 	}
 
 }
